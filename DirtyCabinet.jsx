@@ -162,9 +162,7 @@ const SEED_REVIEWS = [
     votes: 45 },
 ];
 
-const FREE_MAIL = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "naver.com", "icloud.com", "daum.net"];
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
-const isFreeMail = (v) => FREE_MAIL.includes(v.trim().split("@")[1]?.toLowerCase());
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 // shortcut: 서버 없이 방문자 메일 앱으로 보냄, 메일 앱이 없거나 내용이 아주 길면 안 열림. 문의가 늘면 폼 서비스로
 const mailDesk = (subject, lines) => {
@@ -236,6 +234,8 @@ export default function DirtyCabinet() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [toast, setToast] = useState(null);
+  const [panel, setPanel] = useState(null); // 기사 미리보기·회사 정보 창
+  const [reviews, setReviews] = useState(SEED_REVIEWS); // 검색도 새 리뷰를 찾도록 여기서 관리
   const gridRef = useRef(null);
   const journalRef = useRef(null);
   const leadRef = useRef(null);
@@ -269,7 +269,6 @@ export default function DirtyCabinet() {
           </div>
           <div className="flex items-center gap-4 text-xs font-medium">
             <button onClick={() => goTo(leadRef)} className="hover:underline underline-offset-4">Subscribe</button>
-            <button onClick={() => flash("Member log-in opens with the next issue.")} className="hover:underline underline-offset-4">Log In</button>
           </div>
         </div>
       </div>
@@ -350,7 +349,7 @@ export default function DirtyCabinet() {
                 <span className="text-[#1A1A1A]/55"> · {HERO.role}</span>
                 <span className="ml-2 inline-flex items-center gap-1 text-[#1A1A1A]/55"><Clock size={13} /> {HERO.read}</span>
               </div>
-              <button onClick={() => flash("Full cover story unlocks for subscribers.")} className="group inline-flex items-center gap-1 text-sm font-bold uppercase tracking-[.12em]">
+              <button onClick={() => setPanel({ kicker: HERO.kicker, title: HERO.title, body: [HERO.excerpt], byline: `By ${HERO.author} · ${HERO.role} · ${HERO.read}`, story: true })} className="group inline-flex items-center gap-1 text-sm font-bold uppercase tracking-[.12em]">
                 Read the file <ArrowUpRight size={16} className="transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
               </button>
             </div>
@@ -378,7 +377,7 @@ export default function DirtyCabinet() {
               })}
             </div>
           </div>
-          <ArticleGrid items={filter === "ALL" ? ARTICLES : ARTICLES.filter((a) => a.cat === filter)} onOpen={() => flash("Story preview — full text unlocks for subscribers.")} />
+          <ArticleGrid items={filter === "ALL" ? ARTICLES : ARTICLES.filter((a) => a.cat === filter)} onOpen={(a) => setPanel({ kicker: `${CATS[a.cat].label} · ${a.tag}`, title: a.title, body: [a.snippet], byline: `${a.author} · ${a.read} min`, story: true })} />
         </section>
 
         {/* ---------------- Lead magnet ---------------- */}
@@ -386,14 +385,15 @@ export default function DirtyCabinet() {
 
         {/* ---------------- Consumer Review Journal ---------------- */}
         <section ref={journalRef} className="scroll-mt-20 py-12">
-          <ReviewJournal openForm={() => setReviewOpen(true)} reviewOpen={reviewOpen} closeForm={() => setReviewOpen(false)} flash={flash} />
+          <ReviewJournal openForm={() => setReviewOpen(true)} reviewOpen={reviewOpen} closeForm={() => setReviewOpen(false)} flash={flash} reviews={reviews} setReviews={setReviews} />
         </section>
       </main>
 
-      <Footer onInquire={() => setInquireOpen(true)} />
+      <Footer onInquire={() => setInquireOpen(true)} onPick={pickCategory} onInfo={setPanel} />
 
       <InquireModal open={inquireOpen} onClose={() => setInquireOpen(false)} />
-      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onPick={(cat) => { setSearchOpen(false); setTimeout(() => pickCategory(cat), 50); }} />
+      <InfoPanel p={panel} onClose={() => setPanel(null)} flash={flash} />
+      <SearchOverlay open={searchOpen} reviews={reviews} onClose={() => setSearchOpen(false)} onPick={(cat) => { setSearchOpen(false); setTimeout(() => pickCategory(cat), 50); }} />
 
       {toast && (
         <div className="dc-in fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 bg-[#1A1A1A] px-4 py-2.5 text-sm text-[#F7F5F0] shadow-lg" role="status">
@@ -411,12 +411,14 @@ function ArticleGrid({ items, onOpen }) {
   return (
     <div className="grid gap-x-8 gap-y-10 md:grid-cols-2 lg:grid-cols-3">
       {/* Lead card spans two columns on large screens */}
-      <article key={lead.id} className="dc-in group cursor-pointer md:col-span-2 lg:row-span-2" onClick={onOpen}>
+      <article key={lead.id} className="dc-in group cursor-pointer md:col-span-2 lg:row-span-2" onClick={() => onOpen(lead)}
+        role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(lead)}>
         <Plate motif={lead.motif} caption={lead.plate} className="aspect-[16/10] w-full transition duration-500 group-hover:contrast-125" />
         <CardMeta a={lead} big />
       </article>
       {rest.map((a) => (
-        <article key={a.id} className="dc-in group cursor-pointer" onClick={onOpen}>
+        <article key={a.id} className="dc-in group cursor-pointer" onClick={() => onOpen(a)}
+          role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(a)}>
           <Plate motif={a.motif} caption={a.plate} className="aspect-[4/3] w-full" />
           <CardMeta a={a} />
         </article>
@@ -452,7 +454,6 @@ function LeadMagnet() {
   const submit = (e) => {
     e.preventDefault();
     if (!isEmail(email)) { setState("error"); setMsg("Enter a full email address, like name@company.com."); return; }
-    if (isFreeMail(email)) { setState("error"); setMsg("Use your company address so we can send the B2B edition."); return; }
     mailDesk("PDF request: MENA & US K-Beauty Compliance Checklist", [`Please send the checklist to: ${email}`]);
     setState("done");
   };
@@ -521,8 +522,7 @@ function ScoreBar({ icon: Icon, label, v }) {
   );
 }
 
-function ReviewJournal({ openForm, reviewOpen, closeForm, flash }) {
-  const [reviews, setReviews] = useState(SEED_REVIEWS);
+function ReviewJournal({ openForm, reviewOpen, closeForm, flash, reviews, setReviews }) {
   const [voted, setVoted] = useState({});
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [focus, setFocus] = useState("All");
@@ -672,7 +672,7 @@ function ReviewModal({ open, onClose, onSubmit }) {
     onSubmit({
       id: `u${Date.now()}`, product: f.product, brand: f.brand || "Unlisted brand", reviewer: f.reviewer || "Anonymous",
       role: f.role || (f.b2b ? "B2B buyer" : "Community member"), region: f.region || "Undisclosed",
-      verified: false, pending: f.b2b, rating: f.rating, focus: f.focus, date: new Date().toISOString().slice(0, 10),
+      verified: false, pending: f.b2b, rating: f.rating, focus: f.focus, date: new Date().toLocaleDateString("en-CA"),
       scores: { climate: +f.climate, packaging: +f.packaging, compliance: +f.compliance }, body: f.body, votes: 0,
     });
   };
@@ -765,7 +765,6 @@ function InquireModal({ open, onClose }) {
     const er = {};
     if (!f.name.trim()) er.name = "Add your name.";
     if (!isEmail(f.email)) er.email = "Enter a valid business email.";
-    else if (isFreeMail(f.email)) er.email = "Use your company domain so our desk can verify you.";
     if (!f.company.trim()) er.company = "Add your company name.";
     if (!f.region) er.region = "Choose a region.";
     if (!f.budget) er.budget = "Choose a budget range.";
@@ -872,14 +871,14 @@ function InquireModal({ open, onClose }) {
 }
 
 /* ---------------- Search overlay ---------------- */
-function SearchOverlay({ open, onClose, onPick }) {
+function SearchOverlay({ open, onClose, onPick, reviews }) {
   const [q, setQ] = useState("");
   const ref = useRef(null);
   useEffect(() => { if (open) { setQ(""); setTimeout(() => ref.current?.focus(), 30); } }, [open]);
   const pool = useMemo(() => [
     ...ARTICLES.map((a) => ({ cat: a.cat, title: a.title, meta: `${CATS[a.cat].label} · ${a.tag}` })),
-    ...SEED_REVIEWS.map((r) => ({ cat: "JOURNAL", title: `${r.product} — ${r.brand}`, meta: `Review · ${r.region}` })),
-  ], []);
+    ...reviews.map((r) => ({ cat: "JOURNAL", title: `${r.product} — ${r.brand}`, meta: `Review · ${r.region}` })),
+  ], [reviews]);
   const hits = q.trim().length < 2 ? [] : pool.filter((p) => (p.title + p.meta).toLowerCase().includes(q.toLowerCase()));
   const suggestions = ["MoCRA", "Halal", "sunscreen", "packaging", "OEM", "Yugnecare"];
 
@@ -918,8 +917,54 @@ function SearchOverlay({ open, onClose, onPick }) {
   );
 }
 
+/* ---------------- Story preview / company info panel ---------------- */
+const INFO = {
+  About: { kicker: "Company", title: "About Dirty Cabinet", body: [
+    "Dirty Cabinet is a B2B trade-intelligence magazine published by K&S UNCLES in Seoul. It covers Korean beauty and healthcare brands, the markets they export to, and the buyers who stock them.",
+    "We also match overseas buyers with Korean brands by hand. Use Inquire to open a file with our desk.",
+  ] },
+  "Editorial standards": { kicker: "Company", title: "Editorial standards", body: [
+    "During this preview, most stories and reviews on the site are samples that show the format. They are not reports on real companies.",
+    "Reviews filed through the site get the Verified badge only after our desk checks the purchase. B2B buyers are asked for an invoice.",
+    "Nothing here is legal or regulatory advice.",
+  ] },
+  Privacy: { kicker: "Company", title: "Privacy", body: [
+    "This site does not store what you type. When you send a form, your own mail app opens a message to unclescoslab@gmail.com. Nothing is sent until you press send.",
+    "We use your details only to answer you. To have your messages deleted, write to unclescoslab@gmail.com.",
+    "A review you post shows only in your own browser until our desk publishes it. Fonts load from Google Fonts, which can see your IP address.",
+  ] },
+};
+
+function InfoPanel({ p, onClose, flash }) {
+  if (!p) return null;
+  const request = () => {
+    mailDesk(`Story request: ${p.title}`, [`Please send me the full file: ${p.title}`]);
+    onClose();
+    flash("Your mail app opened. Press send to request the full file.");
+  };
+  return (
+    <Modal open onClose={onClose} label={p.title} wide>
+      <div className="p-6 sm:p-8">
+        <p className="f-mono text-[10px] uppercase tracking-[.2em] text-[#9B2C1F]">{p.kicker}</p>
+        <h3 className="f-display mt-2 text-3xl font-bold leading-tight">{p.title}</h3>
+        {p.body.map((t, i) => <p key={i} className="mt-4 text-[15px] leading-relaxed text-[#1A1A1A]/80">{t}</p>)}
+        {p.byline && <p className="mt-3 text-xs text-[#1A1A1A]/55">{p.byline}</p>}
+        {p.story && (
+          <div className="mt-6 flex flex-col gap-3 border-t border-[#E5E2DC] pt-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-[#1A1A1A]/55">The full file goes out by email while the archive is in preview.</p>
+            <button onClick={request} className="bg-[#1A1A1A] px-6 py-3 text-[12px] font-bold uppercase tracking-[.16em] text-[#F7F5F0] hover:bg-[#9B2C1F]">Request the full file</button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /* ---------------- Footer ---------------- */
-function Footer({ onInquire }) {
+function Footer({ onInquire, onPick, onInfo }) {
+  const action = (label) =>
+    ({ Brands: () => onPick("BRANDS"), Trends: () => onPick("TRENDS"), "Consumer Review Journal": () => onPick("JOURNAL"), Advertise: onInquire })[label]
+    || (INFO[label] && (() => onInfo(INFO[label])));
   return (
     <footer className="mt-6 border-t border-[#1A1A1A] bg-[#1A1A1A] text-[#F7F5F0]">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-12">
@@ -933,7 +978,9 @@ function Footer({ onInquire }) {
         {[["Cabinets", ["Brands", "Trends", "Consumer Review Journal"]], ["Desks", ["Seoul", "Dubai", "Los Angeles"]], ["Company", ["About", "Editorial standards", "Advertise", "Privacy"]]].map(([h, items]) => (
           <div key={h} className="md:col-span-2">
             <p className="f-mono mb-3 text-[10px] uppercase tracking-[.2em] text-[#F7F5F0]/50">{h}</p>
-            <ul className="space-y-1.5 text-sm text-[#F7F5F0]/80">{items.map((i) => <li key={i}>{i}</li>)}</ul>
+            <ul className="space-y-1.5 text-sm text-[#F7F5F0]/80">{items.map((i) => (
+              <li key={i}>{action(i) ? <button onClick={action(i)} className="text-left hover:underline underline-offset-4">{i}</button> : i}</li>
+            ))}</ul>
           </div>
         ))}
         <div className="flex items-end md:col-span-1"><FileText size={20} className="text-[#F7F5F0]/30" /></div>
